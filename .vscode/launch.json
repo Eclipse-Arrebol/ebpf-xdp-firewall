@@ -1,0 +1,43 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug firewall (sudo, gdb)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/firewall",
+            "args": [
+                "-i",
+                "${input:iface}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "preLaunchTask": "make: build",
+            "pipeTransport": {
+                "pipeProgram": "sudo",
+                "pipeArgs": [
+                    "-E"
+                ],
+                "debuggerPath": "/usr/bin/gdb"
+            },
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "iface",
+            "type": "promptString",
+            "description": "Network interface name (e.g. eth0, ens33)",
+            "default": "eth0"
+        }
+    ]
+}

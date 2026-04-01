@@ -1,0 +1,46 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "make: build",
+            "type": "shell",
+            "command": "make",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "make: clean",
+            "type": "shell",
+            "command": "make",
+            "args": [
+                "clean"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "run: firewall (sudo)",
+            "type": "shell",
+            "command": "sudo",
+            "args": [
+                "./firewall",
+                "-i",
+                "${input:iface}"
+            ],
+            "dependsOn": "make: build",
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "iface",
+            "type": "promptString",
+            "description": "Network interface name (e.g. eth0, ens33)",
+            "default": "eth0"
+        }
+    ]
+}

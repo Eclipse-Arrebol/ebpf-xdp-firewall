@@ -1,0 +1,29 @@
+{
+    "files.associations": {
+        "*.bpf.c": "c",
+        "*.skel.h": "c"
+    },
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}",
+        "${workspaceFolder}/.output",
+        "${workspaceFolder}/libbpf/include",
+        "${workspaceFolder}/libbpf/include/uapi",
+        "/usr/include",
+        "/usr/include/${env:HOSTTYPE}-linux-gnu"
+    ],
+    "C_Cpp.default.browse.path": [
+        "${workspaceFolder}",
+        "${workspaceFolder}/libbpf/include",
+        "${workspaceFolder}/libbpf/include/uapi",
+        "/usr/include",
+        "/usr/include/linux",
+        "/usr/include/${env:HOSTTYPE}-linux-gnu"
+    ],
+    "C_Cpp.default.compilerPath": "/usr/bin/clang",
+    "C_Cpp.default.intelliSenseMode": "linux-clang-x64",
+    "C_Cpp.default.cStandard": "c17",
+    "editor.formatOnSave": true,
+    "[c]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    }
+}

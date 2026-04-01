@@ -30,25 +30,25 @@ sudo ./firewall -i <网卡> [-b <IP>] [-p <端口>]
 
 启动后支持以下交互命令：
 
-| 命令 | 说明 |
-|------|------|
-| `list` | 显示当前 IP 黑名单 |
-| `add <IP>` | 添加 IP 到黑名单 |
-| `del <IP>` | 从黑名单删除 IP |
+| 命令       | 说明               |
+| ---------- | ------------------ |
+| `list`     | 显示当前 IP 黑名单 |
+| `add <IP>` | 添加 IP 到黑名单   |
+| `del <IP>` | 从黑名单删除 IP    |
 
 示例：
 ```bash
-sudo ./firewall -i ens37 -b 1.2.3.4 -p 80
+sudo ./firewall -i ens37 -b 8.8.8.8 -p 80
 ```
 
 ## 性能数据
 
 测试环境：Ubuntu 20.04，内核 5.15，VMware NAT 网卡，iperf3
 
-| 场景 | 吞吐量 |
-|------|--------|
+| 场景                 | 吞吐量         |
+| -------------------- | -------------- |
 | Baseline（无防火墙） | 2.62 Gbits/sec |
-| iptables conntrack | 1.69 Gbits/sec |
-| eBPF XDP 防火墙 | 2.73 Gbits/sec |
+| iptables conntrack   | 1.69 Gbits/sec |
+| eBPF XDP 防火墙      | 2.73 Gbits/sec |
 
 XDP 在网卡驱动层介入，跳过内核网络栈（sk_buff 分配、协议解析、路由查找），吞吐量相较于 iptables 提升 **39%**。
