@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include "firewall.h"
 
 static volatile int keep_running = 1;
 
@@ -80,6 +81,36 @@ struct pkt_stats
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
 	return vfprintf(stderr, format, args);
+}
+
+static int ring_buf_callback(void *ctx, void *data, size_t size)
+{
+	firewall_event *e = (firewall_event *)data;
+	struct in_addr addr;
+
+	if (e->type == EVENT_BLOCK_IP_IN)
+	{
+		addr.s_addr = e->s_ip;
+		printf("block in ip :%s\n", inet_ntoa(addr));
+	}
+
+	if (e->type == EVENT_BLOCK_IP_OUT)
+	{
+		addr.s_addr = e->d_ip;
+		printf("block out ip :%s\n", inet_ntoa(addr));
+	}
+	if (e->type == EVENT_BLOCK_PORT_IN)
+	{
+		addr.s_addr = e->s_ip;
+		printf("block out ip :%s,block port : %d\n", inet_ntoa(addr), e->s_port);
+	}
+
+	if (e->type == EVENT_BLOCK_PORT_OUT)
+	{
+		addr.s_addr = e->d_ip;
+		printf("block out ip :%s,block port : %d\n", inet_ntoa(addr), e->d_port);
+	}
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -178,6 +209,8 @@ int main(int argc, char **argv)
 		goto cleanup;
 	}
 
+	struct ring_buffer *ring_buf = ring_buffer__new(bpf_map__fd(skel->maps.events), ring_buf_callback, NULL, NULL);
+
 	__u32 val = 1;
 	for (int i = 0; i < i_ip; i++)
 	{
@@ -212,21 +245,7 @@ int main(int argc, char **argv)
 
 	while (keep_running)
 	{
-		sleep(1);
-		// __u32 key = 0, next_key;
-		// struct pkt_stats value;
-		// printf("polling...\n");
-		// fflush(stdout);
-		// while (bpf_map__get_next_key(skel->maps.stats, &key, &next_key, sizeof(key)) == 0) {
-		// 	bpf_map__lookup_elem(skel->maps.stats, &next_key, sizeof(next_key), &value,
-		// 			     sizeof(value), 0);
-		// 	struct in_addr ip_addr = { .s_addr = next_key };
-		// 	printf("IP: %-16s  packets: %llu  bytes: %llu\n", inet_ntoa(ip_addr),
-		// 	       value.packets, value.bytes);
-
-		// 	key = next_key;
-		// }
-		// key = 0;
+		ring_buffer__poll(ring_buf, 100);
 	}
 	tc_opts.flags = tc_opts.prog_fd = tc_opts.prog_id = 0;
 	err = bpf_tc_detach(&tc_hook, &tc_opts);

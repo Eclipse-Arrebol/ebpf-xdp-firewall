@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright (c) 2020 Facebook */
-#include <linux/bpf.h>
+#define __BPF_SIDE__
+#include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
-#include <linux/if_ether.h>
-#include <linux/ip.h>
-#include <linux/pkt_cls.h>
-#include <linux/udp.h>
-#include <linux/tcp.h>
+#include "firewall.h"
+#include <bpf/bpf_core_read.h>
 
 #define TASK_COMM_LEN 16
 #define ETH_P_IP 0x0800
+#define TC_ACT_OK 0
+#define TC_ACT_SHOT 2
 
 struct
 {
@@ -42,6 +42,12 @@ struct
 	__type(value, struct pkt_stats); // value: 统计数据
 } stats SEC(".maps");
 
+struct
+{
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 4096);
+} events SEC(".maps");
+
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 SEC("xdp")
@@ -55,7 +61,7 @@ int xdp_prog(struct xdp_md *ctx)
 
 	struct ethhdr *eth = data;
 
-	if (eth->h_proto != bpf_htons(ETH_P_IP))
+	if (BPF_CORE_READ(eth, h_proto) != bpf_htons(ETH_P_IP))
 		return XDP_PASS;
 
 	struct iphdr *ip = (void *)(eth + 1);
@@ -64,9 +70,16 @@ int xdp_prog(struct xdp_md *ctx)
 		return XDP_PASS;
 	}
 
-	__u32 ipaddr = ip->saddr;
+	__u32 ipaddr = BPF_CORE_READ(ip, saddr);
 	if (bpf_map_lookup_elem(&blacklist, &ipaddr))
 	{
+		firewall_event *e = bpf_ringbuf_reserve(&events, sizeof(firewall_event), 0);
+		if (!e)
+			return XDP_DROP;
+		e->type = EVENT_BLOCK_IP_IN;
+		e->s_ip = ipaddr;
+		e->protocol = ip->protocol;
+		bpf_ringbuf_submit(e, 0);
 		bpf_printk("block ip : %pI4", &ip->daddr);
 		return XDP_DROP;
 	}
@@ -87,7 +100,7 @@ int xdp_prog(struct xdp_md *ctx)
 		bpf_map_update_elem(&stats, &ipaddr, &init, BPF_ANY);
 	}
 
-	if (ip->protocol == 17)
+	if (BPF_CORE_READ(ip, protocol) == 17)
 	{
 
 		struct udphdr *udp = (void *)(ip + 1);
@@ -95,26 +108,43 @@ int xdp_prog(struct xdp_md *ctx)
 		{
 			return XDP_PASS;
 		}
-		__u16 ipport = udp->dest;
-		if (bpf_map_lookup_elem(&blacklist, &ipaddr) ||
-			bpf_map_lookup_elem(&port_blacklist, &ipport))
+		__u16 ipport = BPF_CORE_READ(udp, dest);
+
+		//
+
+		if (bpf_map_lookup_elem(&port_blacklist, &ipport))
 		{
+			firewall_event *e = bpf_ringbuf_reserve(&events, sizeof(firewall_event), 0);
+			if (!e)
+				return XDP_DROP;
+			e->type = EVENT_BLOCK_PORT_IN;
+			e->s_ip = ipaddr;
+			e->protocol = BPF_CORE_READ(ip, protocol);
+			e->s_port = ipport;
+			bpf_ringbuf_submit(e, 0);
 			bpf_printk("src ip: %u ,port:%u,is block\n", ipaddr, ipport);
 			return XDP_DROP;
 		}
 	}
 
-	if (ip->protocol == 6)
+	if (BPF_CORE_READ(ip, protocol) == 6)
 	{
 		struct tcphdr *tcp = (void *)(ip + 1);
 		if ((void *)(tcp + 1) > data_end)
 		{
 			return XDP_PASS;
 		}
-		__u16 ipport = tcp->dest;
-		if (bpf_map_lookup_elem(&blacklist, &ipaddr) ||
-			bpf_map_lookup_elem(&port_blacklist, &ipport))
+		__u16 ipport = BPF_CORE_READ(tcp, dest);
+		if (bpf_map_lookup_elem(&port_blacklist, &ipport))
 		{
+			firewall_event *e = bpf_ringbuf_reserve(&events, sizeof(firewall_event), 0);
+			if (!e)
+				return XDP_DROP;
+			e->type = EVENT_BLOCK_PORT_IN;
+			e->s_ip = ipaddr;
+			e->protocol = BPF_CORE_READ(ip, protocol);
+			e->s_port = ipport;
+			bpf_ringbuf_submit(e, 0);
 			bpf_printk("src ip: %u ,port:%u,is block\n", ipaddr, ipport);
 			return XDP_DROP;
 		}
@@ -136,21 +166,28 @@ int tc_egress(struct __sk_buff *ctx)
 
 	struct ethhdr *eth = data;
 
-	if (eth->h_proto != bpf_htons(ETH_P_IP))
+	if (BPF_CORE_READ(eth, h_proto) != bpf_htons(ETH_P_IP))
 		return TC_ACT_OK;
 
 	struct iphdr *ip = (void *)(eth + 1);
 	if ((void *)(ip + 1) > data_end)
 		return TC_ACT_OK;
 
-	__u32 ipaddr = ip->daddr;
+	__u32 ipaddr = BPF_CORE_READ(ip, daddr);
 	if (bpf_map_lookup_elem(&blacklist, &ipaddr))
 	{
+		firewall_event *e = bpf_ringbuf_reserve(&events, sizeof(firewall_event), 0);
+		if (!e)
+			return TC_ACT_SHOT;
+		e->type = EVENT_BLOCK_IP_OUT;
+		e->d_ip = ipaddr;
+		e->protocol = BPF_CORE_READ(ip, protocol);
+		bpf_ringbuf_submit(e, 0);
 		bpf_printk("block ip : %pI4", &ip->daddr);
 		return TC_ACT_SHOT;
 	}
 
-	if (ip->protocol == 17)
+	if (BPF_CORE_READ(ip, protocol) == 17)
 	{
 
 		struct udphdr *udp = (void *)(ip + 1);
@@ -158,26 +195,40 @@ int tc_egress(struct __sk_buff *ctx)
 		{
 			return TC_ACT_OK;
 		}
-		__u16 ipport = udp->dest;
-		if (bpf_map_lookup_elem(&blacklist, &ipaddr) ||
-			bpf_map_lookup_elem(&port_blacklist, &ipport))
+		__u16 ipport = BPF_CORE_READ(udp, dest);
+		if (bpf_map_lookup_elem(&port_blacklist, &ipport))
 		{
+			firewall_event *e = bpf_ringbuf_reserve(&events, sizeof(firewall_event), 0);
+			if (!e)
+				return TC_ACT_SHOT;
+			e->type = EVENT_BLOCK_PORT_OUT;
+			e->d_ip = ipaddr;
+			e->protocol = BPF_CORE_READ(ip, protocol);
+			e->d_port = ipport;
+			bpf_ringbuf_submit(e, 0);
 			bpf_printk("src ip: %u ,port:%u,is block\n", ipaddr, ipport);
 			return TC_ACT_SHOT;
 		}
 	}
 
-	if (ip->protocol == 6)
+	if (BPF_CORE_READ(ip, protocol) == 6)
 	{
 		struct tcphdr *tcp = (void *)(ip + 1);
 		if ((void *)(tcp + 1) > data_end)
 		{
 			return TC_ACT_OK;
 		}
-		__u16 ipport = tcp->dest;
-		if (bpf_map_lookup_elem(&blacklist, &ipaddr) ||
-			bpf_map_lookup_elem(&port_blacklist, &ipport))
+		__u16 ipport = BPF_CORE_READ(tcp, dest);
+		if (bpf_map_lookup_elem(&port_blacklist, &ipport))
 		{
+			firewall_event *e = bpf_ringbuf_reserve(&events, sizeof(firewall_event), 0);
+			if (!e)
+				return TC_ACT_SHOT;
+			e->type = EVENT_BLOCK_PORT_OUT;
+			e->d_ip = ipaddr;
+			e->protocol = BPF_CORE_READ(ip, protocol);
+			e->d_port = ipport;
+			bpf_ringbuf_submit(e, 0);
 			bpf_printk("src ip: %u ,port:%u,is block\n", ipaddr, ipport);
 			return TC_ACT_SHOT;
 		}
